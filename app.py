@@ -13,26 +13,36 @@ st.set_page_config(
 st.title("MULTI-IMU 步态参数分析与异常检测系统")
 st.markdown("---")
 
-# ================= 2. 侧边栏交互参数 =================
+# ================= 2. 侧边栏交互 =================
 st.sidebar.header("⚙️ 算法参数设置")
-st.sidebar.write("当前采用 Layer 2 (MAD) 异常检测规则。")
-
 mad_slider = st.sidebar.slider(
     "异常判断阈值 (MAD 倍数)", 
-    min_value=1.0, 
-    max_value=4.0, 
-    value=2.5, 
-    step=0.1,
-    help="值越小，判定为异常的条件越严格，抓出的异常样本越多。"
+    min_value=1.0, max_value=4.0, value=2.5, step=0.1,
+    help="值越小，抓出的异常样本越多。"
+)
+
+st.sidebar.markdown("---")
+st.sidebar.header("📂 导入外部数据")
+# 核心功能：允许用户上传多个 CSV
+uploaded_files = st.sidebar.file_uploader(
+    "拖拽或点击上传 CSV (可多选)", 
+    type=["csv"], 
+    accept_multiple_files=True,
+    help="默认使用本地已有的数据集。如果您上传新的文件（文件名需包含 events 和 trial），系统将优先分析您上传的数据。"
 )
 
 # ================= 3. 获取数据 =================
-data = get_dashboard_data(mad_threshold=mad_slider)
+data = get_dashboard_data(mad_threshold=mad_slider, uploaded_files=uploaded_files)
 
 if data["status"] == "error":
     st.error(f"❌ 数据加载失败！错误原因：{data['message']}")
-    st.info("请检查：1. 三个CSV文件是否和代码在同一个文件夹下？ 2. 文件是否损坏？")
+    if uploaded_files:
+        st.info("提示：您上传的文件名中，必须包含 'events' 和 'trial' 关键词，系统才能识别。")
+    else:
+        st.info("请检查：默认的 CSV 文件是否和代码在同一个文件夹下？")
 else:
+    st.success("✅ 数据读取成功！")
+    
     tab1, tab2, tab3 = st.tabs(["📋 原始数据概览", "📈 步态指标可视化", "🚨 异常 Trial 检测"])
     
     # ================= Tab 1: 数据概览 =================
@@ -45,36 +55,31 @@ else:
         
     # ================= Tab 2: 可视化 =================
     with tab2:
-        # 寻找步时列
         step_cols = [c for c in data["trial"].columns if 'step' in c.lower() and 'time' in c.lower()]
         
         if step_cols:
             target_col = step_cols[0]
             
-            # 智能寻找步频列（只要列名里包含 'cad' 就行，忽略大小写）
+            # 智能寻找步频列
             cadence_cols = [c for c in data["trial"].columns if 'cad' in c.lower()]
             if cadence_cols:
                 x_col = cadence_cols[0]
             else:
-                # 如果实在找不到步频列，就用第一列数据代替X轴，保证图能出来
                 x_col = data["trial"].columns[0]
 
-            # 绘制散点图
             st.subheader(f"基准指标 ({x_col}) vs 步时 ({target_col}) 关系散点图")
             fig = px.scatter(
                 data["trial"], 
                 x=x_col, 
                 y=target_col, 
                 color="是否异常", 
-                color_discrete_map={True: "#ef4444", False: "#3b82f6"}, # 异常为红色，正常为蓝色
+                color_discrete_map={True: "#ef4444", False: "#3b82f6"},
                 title="红色点代表系统检测出的异常样本"
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # 绘制柱状图
             st.subheader("步时均值分布图 (按 Trial 排序)")
             st.bar_chart(data["trial"][[target_col]].dropna())
-            
         else:
             st.warning("在数据中未找到包含 'step' 和 'time' 的列，无法绘图。")
 
